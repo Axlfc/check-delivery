@@ -1,22 +1,15 @@
 #!/usr/bin/env python
+import csv
+import os
+
 from PyPDF2 import PdfReader
-import re
 
-file_name = 1
-# TODO: 3 + 5 (multiple line product), 4 (qty), 6 (qty, product), 7 (product, amount)
+# TODO: 3
 
 
-def is_float(value):
+def is_type(value, value_type):
     try:
-        float(value)
-        return True
-    except ValueError:
-        return False
-
-
-def is_int(value):
-    try:
-        int(value)
+        value_type(value)
         return True
     except ValueError:
         return False
@@ -50,9 +43,9 @@ def write_products_dictionary(my_dict, description, product, qty, price, amount)
     }
 
 
-def main():
-    pdf_text = load_pdf(f"deliveries/{file_name}.pdf")
-
+def process_pdf_file(pdf_path):
+    print("PATH:\t", pdf_path)
+    pdf_text = load_pdf(pdf_path)
     lines = pdf_text.split("\n")
 
     products = {}
@@ -80,7 +73,7 @@ def main():
             else:
                 reversed_line = line[::-1]
 
-                line_str = line.replace(',', '.')
+                line_str = line.replace('.', '').replace(',', '.')
 
                 temp_list = line_str.split(" ")[:-1]
 
@@ -94,12 +87,13 @@ def main():
 
                 temp_list = temp_list[::-1]
 
-                if is_float(temp_list[1]):
+                if is_type(temp_list[1], float):
                     amount = temp_list[1]
                     temp_list.remove(amount)
-                    amount = "{:,.2f} €".format(float(amount))
+                    # amount = "{:,.2f} €".format(float(amount))
+                    amount = "{:.2f} €".format(float(amount))
                 else:
-                    if not is_float(temp_list[0]):
+                    if not is_type(temp_list[0], float):
                         product = (temp_list[0][::-1] + temp_list[1][::-1])[::-1]
                         temp_list.remove(temp_list[0])
                         temp_list.remove(temp_list[1])
@@ -110,25 +104,55 @@ def main():
                         except IndexError:
                             continue
                     else:
-                        product = temp_list[1]
                         price = temp_list[0]
-                        qty = temp_list[2]
-                        temp_list.remove(product)
                         temp_list.remove(price)
+
+                        try:
+                            qty = str(int(temp_list[2]))
+                            temp_list.remove(qty)
+                        except Exception as e:
+                            qty = temp_list
+                            for item in range(len(qty)):
+                                if int(item):
+                                    qty = str(item)
+                                    break
+                            temp_list.remove(qty)
+                            pass
+
+                        product = temp_list[1]
+
+                        temp_list.remove(product)
+
+                if not qty:
+                    try:
+                        qty = temp_list[0]
                         temp_list.remove(qty)
+                    except Exception as e:
+                        # print("QTY EXCEPTION: ", e)
+                        print("XD")
+                        if not description:
+                            description = " ".join(" ".join(temp_list[::-1][:-1]).split(" ")[::-1][2:][::-1])
+                            new_line = line.replace(str(description) + " ", "")
+                        qty = new_line.split(" ")[1].replace(",", ".")
+                        if not price:
+                            price = new_line.split(" ")[2].replace(",", ".")
+                        if not product:
+                            product = new_line.split(" ")[::-1][0]
+                        if not amount:
+                            amount = "{:.2f} €".format(float(price) * float(qty))
+                        pass
 
                 if not product:
                     product = temp_list[0]
                     temp_list.remove(product)
 
-                if not qty:
-                    qty = temp_list[0]
-                    temp_list.remove(qty)
-
                 if not amount:
-                    amount = "{:,.2f} €".format(float(price) * float(qty))
+                    try:
+                        amount = "{:.2f} €".format(float(price) * float(qty))
                     # amount = str(float(price.split(" ")[0]) * float(qty)) + " €"
-
+                    except Exception as e:
+                        # print("AMOUNT EXCEPTION:", e)
+                        continue
 
                 if not description:
                     try:
@@ -136,11 +160,35 @@ def main():
                     except Exception as e:
                         print("EXCEPTION, DESCRIPTION COULD NOT BE WRITTEN.\n", e)
 
-            if description and product and qty and price and amount:
-                write_products_dictionary(products, description, product, qty, price, amount)
+                if description and product and qty and price and amount:
+                    write_products_dictionary(products, description, product, qty, price, amount)
 
     if products:
         print_well_formatted_dict(products)
+
+    return products
+
+
+def main():
+    product_details = []
+
+    for filename in os.listdir('deliveries'):
+        if filename.endswith('.pdf'):
+            pdf_path = os.path.join('deliveries', filename)
+            products = process_pdf_file(pdf_path)
+            for description, details in products.items():
+                product_details.append([
+                    description,
+                    details['Product'],
+                    details['Quantity'],
+                    details['Price per unit'],
+                    details['Total amount']
+                ])
+
+    with open('products_details.csv', 'w', newline='', encoding='utf-8') as csvfile:
+        csvwriter = csv.writer(csvfile)
+        csvwriter.writerow(['Description', 'Quantity', 'Product', 'Price per unit', 'Total amount'])
+        csvwriter.writerows(product_details)
 
 
 if __name__ == '__main__':
